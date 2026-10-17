@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Imagen a PES · Matriz de bordado</title>
+<style>
+:root{--bg:#faf7f2;--card:#fff;--tx:#2a2420;--mu:#7a6f66;--ac:#b4472d;--bd:#e6dfd5;--cv:#fff;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1917;--card:#292422;--tx:#f1ebe4;--mu:#a69a90;--ac:#e0735a;--bd:#3d3631;--cv:#f4efe8;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1c1917;--card:#292422;--tx:#f1ebe4;--mu:#a69a90;--ac:#e0735a;--bd:#3d3631;--cv:#f4efe8;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+h1{font:600 1.6rem Georgia,serif;margin:0 0 4px}p.s{color:var(--mu);margin:0 0 18px}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:.9rem;color:var(--mu);margin:10px 0 4px}
+input[type=file]{width:100%}input[type=range]{width:100%}
+select{width:100%;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+button{width:100%;padding:13px;border:0;border-radius:10px;background:var(--ac);color:#fff;font:600 1rem inherit;margin-top:14px}
+button:disabled{opacity:.45}
+canvas{width:100%;max-width:100%;background:var(--cv);border-radius:10px;border:1px solid var(--bd);display:block}
+.sw{display:inline-flex;align-items:center;gap:6px;margin:4px 10px 0 0;font-size:.85rem;color:var(--mu)}.sw i{width:16px;height:16px;border-radius:4px;border:1px solid var(--bd)}
+.n{font-size:.85rem;color:var(--mu)}
+</style></head><body><main>
+<h1>Imagen → PES</h1>
+<p class="s">Sube una imagen y descarga la matriz de bordado (.pes) lista para tu máquina.</p>
+<div class="c">
+<input type="file" id="f" accept="image/*">
+<label>Ancho del bordado: <b id="wv">80</b> mm</label>
+<input type="range" id="w" min="30" max="150" value="80">
+<label>Cantidad de colores</label>
+<select id="k"><option value="0" selected>Automático</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option><option>12</option><option>16</option></select>
+<label><input type="checkbox" id="bg" checked> Quitar el fondo (color de la esquina o transparente)</label>
+<button id="go" disabled>Generar bordado</button>
+</div>
+<div class="c" id="out" hidden>
+<canvas id="cv"></canvas>
+<p class="n" id="st"></p><div id="th"></div>
+<button id="dl">Descargar archivo</button>
+<p class="n">El archivo .pes se entrega dentro de un ZIP: descomprímelo antes de abrirlo. Los colores de la vista previa son los de hilo recomendados; en la máquina elige tus hilos.</p>
+</div>
+<script>
+const $=id=>document.getElementById(id);let img=null,res=null;
+$('w').oninput=()=>$('wv').textContent=$('w').value;
+$('f').onchange=e=>{const f=e.target.files[0];if(!f)return;const i=new Image();i.onload=()=>{img=i;$('go').disabled=false};i.src=URL.createObjectURL(f)};
+$('go').onclick=()=>{$('go').textContent='Procesando…';setTimeout(()=>{try{res=build();show()}finally{$('go').textContent='Generar bordado'}},30)};
+
+function build(){
+ const W=+$('w').value,K=+$('k').value,cols=Math.round(W/0.4),rows=Math.max(1,Math.round(cols*img.height/img.width));
+ const c=document.createElement('canvas');c.width=cols;c.height=rows;const x=c.getContext('2d',{willReadFrequently:true});
+ x.drawImage(img,0,0,cols,rows);const d=x.getImageData(0,0,cols,rows).data,N=cols*rows;
+ const bgc=[d[0],d[1],d[2]],lab=new Int16Array(N).fill(-1),px=[];
+ for(let i=0;i<N;i++){const r=d[i*4],g=d[i*4+1],b=d[i*4+2];if(d[i*4+3]<128)continue;
+  if($('bg').checked&&d[3]>=128&&Math.hypot(r-bgc[0],g-bgc[1],b-bgc[2])<60)continue;px.push(i)}
+ if(!px.length)throw alert('No se encontró diseño: desactiva "Quitar el fondo".');
+ const col=i=>[d[i*4],d[i*4+1],d[i*4+2]],dist=(a,b)=>(a[0]-b[0])**2+(a[1]-b[1])**2+(a[2]-b[2])**2;
+ const step=Math.max(1,Math.floor(px.length/5000)),sm=px.filter((_,j)=>j%step==0).map(col);
+ const km=K=>{let cen=[sm[0]];while(cen.length<K){let best=null,bd=-1;for(const p of sm){const m=Math.min(...cen.map(q=>dist(p,q)));if(m>bd){bd=m;best=p}}if(bd<=0)break;cen.push(best)}
+ for(let it=0;it<10;it++){const s=cen.map(()=>[0,0,0,0]);for(const p of sm){let b=0,bd=1e9;cen.forEach((q,j)=>{const e=dist(p,q);if(e<bd){bd=e;b=j}});s[b][0]+=p[0];s[b][1]+=p[1];s[b][2]+=p[2];s[b][3]++}
+  cen=cen.map((q,j)=>s[j][3]?[s[j][0]/s[j][3],s[j][1]/s[j][3],s[j][2]/s[j][3]]:q)}
+ return cen};
+ let cen;if(K===0){let prev=null,best=null;for(let k=2;k<=10;k++){cen=km(k);const e=sm.reduce((t,p)=>t+Math.min(...cen.map(q=>dist(p,q))),0);if(prev!==null&&e>prev*0.75){cen=best;break}prev=e;best=cen}}else cen=km(K);
+ const cnt=cen.map(()=>0);
+ for(const i of px){const p=col(i);let b=0,bd=1e9;cen.forEach((q,j)=>{const e=dist(p,q);if(e<bd){bd=e;b=j}});lab[i]=b;cnt[b]++}
+ const order=cen.map((_,j)=>j).filter(j=>cnt[j]>0).sort((a,b)=>cnt[b]-cnt[a]),blocks=[];
+ for(const j of order){const p=[];let dir=1,lx=null,ly=null;
+  const add=(X,Y,jump)=>{p.push([X-cols*2,Y-rows*2,jump]);lx=X;ly=Y};
+  for(let y=0;y<rows;y++){const runs=[];let s=-1;
+   for(let xx=0;xx<=cols;xx++){const on=xx<cols&&lab[y*cols+xx]===j;if(on&&s<0)s=xx;if(!on&&s>=0){if(xx-s>=2)runs.push([s,xx]);s=-1}}
+   if(dir<0)runs.reverse();
+   for(const r of runs){let a=r[0]*4,b=r[1]*4,Y=y*4+2;if(dir<0){[a,b]=[b,a]}
+    add(a,Y,lx===null||Math.hypot(a-lx,Y-ly)>30);
+    const lo=Math.min(a,b),hi=Math.max(a,b),off=(y%3)*10,bp=[];
+    for(let q=Math.ceil((lo-off)/30)*30+off;q<hi;q+=30)if(q>lo+4&&q<hi-4)bp.push(q);
+    if(dir<0)bp.reverse();for(const q of bp)add(q,Y,false);add(b,Y,false)}
+   if(runs.length)dir=-dir}
+  if(p.length)blocks.push({p,rgb:cen[j].map(Math.round)})}
+ return{blocks,cols,rows,W,H:rows*0.4};
+}
+
+function show(){
+ const{blocks,cols,rows}=res,cv=$('cv'),S=4;cv.width=cols*S;cv.height=rows*S;const g=cv.getContext('2d');g.lineWidth=1;let n=0;
+ blocks.forEach(b=>{g.strokeStyle=`rgb(${b.rgb})`;g.beginPath();let px=0,py=0;b.p.forEach(([X,Y,j])=>{const u=(X+cols*2)/4*S,v=(Y+rows*2)/4*S;if(j)g.moveTo(u,v);else g.lineTo(u,v);n++});g.stroke()});
+ res.n=n;$('st').textContent=`${n.toLocaleString('es')} puntadas · ${res.W} × ${res.H.toFixed(0)} mm · ${blocks.length} colores`;
+ $('th').innerHTML=blocks.map((b,i)=>`<span class="sw"><i style="background:rgb(${b.rgb})"></i>Hilo ${i+1}</span>`).join('');
+ $('out').hidden=false;$('out').scrollIntoView({behavior:'smooth'});
+}
+
+const u16=v=>[v&255,(v>>8)&255],u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255];
+function pes(blocks){
+ const o=[];let cx=0,cy=0,tg=2,mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;
+ const lg=(v,j)=>{v&=0xFFF;o.push(0x80|(j?0x10:0)|(v>>8),v&255)};
+ blocks.forEach((b,bi)=>{if(bi>0){o.push(0xFE,0xB0,tg);tg=3-tg}
+  b.p.forEach(([X,Y,j])=>{mnx=Math.min(mnx,X);mxx=Math.max(mxx,X);mny=Math.min(mny,Y);mxy=Math.max(mxy,Y);
+   const dx=X-cx,dy=Y-cy;cx=X;cy=Y;
+   if(j){lg(dx,1);lg(dy,1)}else if(Math.abs(dx)<64&&Math.abs(dy)<64)o.push(dx&127,dy&127);else{lg(dx,0);lg(dy,0)}})});
+ o.push(0xFF);
+ const h=[...'#PES0001'].map(c=>c.charCodeAt(0)).concat(u32(16),u32(0));
+ const lab=[...'LA:'+'IMAGEN'.padEnd(16,' ')+'\r'].map(c=>c.charCodeAt(0));
+ const n=blocks.length,pc=[...lab,...Array(12).fill(32),0xFF,0,6,0x26,...Array(12).fill(32),n-1,...blocks.map((_,i)=>i+1),...Array(463-n).fill(32),0,0];
+ const len=o.length+20,w=mxx-mnx,hh=mxy-mny;
+ const blk=[0,0,len&255,(len>>8)&255,(len>>16)&255,0x31,0xFF,0xF0,...u16(w),...u16(hh),...u16(0x1E0),...u16(0x1B0),
+  (0x9000|Math.round(-mnx))>>8,(0x9000|Math.round(-mnx))&255,(0x9000|Math.round(-mny))>>8,(0x9000|Math.round(-mny))&255,...o];
+ return Uint8Array.from([...h,...pc,...blk,...Array(228*(n+1)).fill(0)]);
+}
+
+const T=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc=a=>{let c=-1;for(const b of a)c=T[(c^b)&255]^(c>>>8);return(c^-1)>>>0};
+function zip(name,data){
+ const nm=[...name].map(c=>c.charCodeAt(0)),cr=crc(data),sz=data.length;
+ const loc=[...u32(0x04034b50),...u16(20),0,0,0,0,0,0,0x21,0,...u32(cr),...u32(sz),...u32(sz),...u16(nm.length),0,0,...nm];
+ const cd=[...u32(0x02014b50),...u16(20),...u16(20),0,0,0,0,0,0,0x21,0,...u32(cr),...u32(sz),...u32(sz),...u16(nm.length),0,0,0,0,0,0,0,0,0,0,...u32(0),...nm];
+ const end=[...u32(0x06054b50),0,0,0,0,1,0,1,0,...u32(cd.length),...u32(loc.length+sz),0,0];
+ return Uint8Array.concat?null:Uint8Array.from([...loc,...data,...cd,...end]);
+}
+$('dl').onclick=async()=>{
+ const data=pes(res.blocks),z=zip('bordado.pes',data);
+ try{const d=window.claude&&await claude.use('downloads');
+  if(d){await d.save({filename:'bordado-pes.zip',data:z});return}}catch(e){if(e&&e.code==='declined')return}
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data]));a.download='bordado.pes';a.click();
+};
+</script></main></body></html>
